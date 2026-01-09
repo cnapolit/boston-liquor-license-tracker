@@ -46,10 +46,10 @@ const formatData = (
   const zips = [...zipcodeList];
   const formattedData = zips.map((zipcode) => {
     const applicants = getApplicantsByZipcode(zipcode, data);
-    const subrows = applicants.map((applicant) => {
+    const subRows = applicants.map((applicant) => {
       return [
         applicant.business_name,
-        applicant.dba_name ?? "N/A",
+        applicant.dba_name ?? "-",
         applicant.address,
         applicant.license_number,
         applicant.alcohol_type,
@@ -67,7 +67,7 @@ const formatData = (
         "_",
         `Total Applicants: ${applicants.length}`,
       ],
-      subRowData: subrows,
+      subRowData: subRows,
     };
 
     return entry as RowWithSubRows;
@@ -92,11 +92,11 @@ const RecentApplicationTable = () => {
   }, []);
   const recentApplicationHeaders = [
     "Zipcode/Business Name",
-    "Dba",
+    "Doing Business As",
     "Street Address",
     "License Number",
     "Licenses Type",
-    "App. Date",
+    "Application Date",
     "Status",
   ];
 

@@ -15,7 +15,7 @@ LICENSES_JSON = os.getenv("LICENSES_JSON")
 LAST_PROCESSED_DATE_JSON = os.getenv("LAST_PROCESSED_DATE_JSON")
 
 def parse_entity(entity: str) -> Dict[str, Optional[str]]:
-    lines: List[str] = [line.strip() for line in entity.splitlines() if line.strip()]
+    lines: List[str] = [stripped for line in entity.splitlines() if (stripped := line.strip())]
     result: Dict[str, Optional[str]] = {
         "index": None, 
         "entity_number": None,
@@ -95,22 +95,22 @@ def parse_entity(entity: str) -> Dict[str, Optional[str]]:
 
 # Extracts the first hearing date from the first page of the PDF.
 # Assumes the date is in "Month DD, YYYY" format and exists on page 1.
-# If date does not exist the enity date will be marked as None
+# If date does not exist the entity date will be marked as None
 def extract_hearing_date(pdf_path: str) -> datetime:
     date_pattern: str = r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
     doc: fitz.Document = fitz.open(pdf_path)
     page: fitz.Page = doc[0]
     text: str = page.get_text()
     match: Optional[re.Match[str]] = re.search(date_pattern, text)
-    if match:
-        date_str: str = match.group()
-        try:
-            date_obj: datetime = datetime.strptime(date_str, "%B %d, %Y")
-            return date_obj
-        except Exception as e:
-            raise ValueError(f"Could not conver date string to iso format: {e}")
-    else:
+    if not match:
         raise ValueError(f"Could not find date in the pdf: {e}")
+    
+    date_str: str = match.group()
+    try:
+        date_obj: datetime = datetime.strptime(date_str, "%B %d, %Y")
+        return date_obj
+    except Exception as e:
+        raise ValueError(f"Could not convert date string to iso format: {e}")
 
 def extract_entities_from_pdf(pdf_path: str) -> List[str]:
     heading_regex: str = r'^\d+\.?\s+.*'
@@ -127,43 +127,42 @@ def extract_entities_from_pdf(pdf_path: str) -> List[str]:
     file_name: str = os.path.basename(pdf_path)
     print(f"\nProcessing document: {file_name}")
 
-    for page_num in range(doc.page_count):
-        page: fitz.Page = doc.load_page(page_num)
-
+    for page in doc.pages():
         try:
             page_dict: Dict[str, Any] = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)
             for block in page_dict["blocks"]:
-                if block['type'] == 0:
-                    for line in block['lines']:
-                        stop_processing_line: bool = False
-                        for span in line['spans']:
-                            span_text: str = span['text'].strip()
-                            if not span_text:
-                                continue
+                if block['type'] != 0:
+                    continue
 
-                            if 'Transactional Hearing' in span_text:
-                                in_target_section = True
-                                continue
+                for line in block['lines']:
+                    stop_processing_line: bool = False
+                    for span in line['spans']:
+                        span_text: str = span['text'].strip()
+                        if not span_text:
+                            continue
 
-                            if 'Non-Hearing Transactions' in span_text:
-                                in_target_section = False
-                                stop_processing_line = True
-                                break
+                        if 'Transactional Hearing' in span_text:
+                            in_target_section = True
+                            continue
 
-                            heading_match: Optional[re.Match[str]] = re.match(heading_regex, span_text)
-                            if in_target_section and heading_match and span['flags'] == 20:
-                                if current_entity_lines:
-                                    current_entity_lines.append(file_name)
-                                    entities.append('\n'.join(current_entity_lines))
-                                    current_entity_lines = []
-                                current_entity_lines.append(span_text)
-                            elif in_target_section:
-                                current_entity_lines.append(span_text)
+                        if 'Non-Hearing Transactions' in span_text:
+                            in_target_section = False
+                            stop_processing_line = True
+                            break
 
-                        if stop_processing_line or not in_target_section:
-                            pass
+                        heading_match: Optional[re.Match[str]] = re.match(heading_regex, span_text)
+                        start_of_new_entity: bool = in_target_section and heading_match and span['flags'] == 20
+                        if start_of_new_entity and current_entity_lines:
+                            current_entity_lines.append(file_name)
+                            entities.append('\n'.join(current_entity_lines))
+                            current_entity_lines = []
+                        if in_target_section:
+                            current_entity_lines.append(span_text)
+
+                    if stop_processing_line or not in_target_section:
+                        pass
         except Exception as e:
-            print(f"Error processing page {page_num + 1} in {pdf_path}: {e}")
+            print(f"Error processing page {page.number + 1} in {pdf_path}: {e}")
             continue
 
     if current_entity_lines:
@@ -190,7 +189,6 @@ def read_data() -> List[Dict[str, Optional[str]]]:
             raise RuntimeError(f"Failed to read existing data from {output_file}: {e}")
     
     return existing_data
-
 
 def write_to_file(result: List[Dict[str, Optional[str]]]) -> None:
     """

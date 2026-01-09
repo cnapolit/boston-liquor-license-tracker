@@ -6,7 +6,7 @@ import path from 'path'
 import { fileURLToPath } from "url";
 import {LAST_PROCESSED_DATE_JSON, BOSTON_URL, GOOGLE_PDF_URL} from "./paths.js";
 
-interface EntityType{
+interface EntityType {
    href: string | null, 
    dateText: string, 
    votingDate: string
@@ -17,9 +17,12 @@ const __dirname = path.dirname(__filename);
 
 export async function main() {
    // Entrypoint: fetch the latest meeting date, download the corresponding PDF,
-   // and log structured JSON output for liqour-license-applicant-pipeline workflow.'
+   // and log structured JSON output for liquor-license-applicant-pipeline workflow.'
    try{
-      const pdfDate = await getLatestDate(BOSTON_URL)
+      const response = await axios.get(BOSTON_URL);
+      const $ = cheerio.load(response.data);
+      const latestEntry = await getLatestEntry($)
+      const pdfDate = await getLatestDate(latestEntry)
       if(!pdfDate){
         const result = {
            success: true,
@@ -31,7 +34,7 @@ export async function main() {
         return
       }
     
-      const fileName = await downloadVotingMinutes(pdfDate, BOSTON_URL)
+      const fileName = await downloadVotingMinutes(pdfDate, latestEntry, $)
       console.log("fileName is ", fileName)
       const result = {
          success : true, 
@@ -53,22 +56,13 @@ export async function main() {
    }
 }
 
-async function downloadVotingMinutes(pdfDate : Date, url: string) : Promise<string> {
+async function downloadVotingMinutes(pdfDate : Date, latestEntry: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI) : Promise<string> {
   try{
    const regex = /Voting Minutes:\s+\w+,\s+([A-Za-z]+)\s+(\d{1,2})/;
-   const currentDate = new Date()
-   const currentYear = currentDate.getFullYear()
-   const response = await axios.get(url)
-   const $ = cheerio.load(response.data)
-   
+   const currentYear = pdfDate.getFullYear();
+
    // Locate the container that has the list of past Voting Minutes for the current year
-   const votingMinuteSection = $("section#content")
-    .find(".paragraphs-item-drawers")
-    .last()
-    .find(
-        `.paragraphs-item-drawer .field.field-label-hidden div:contains('${currentYear}')` // Label element containing the current year
-      )
-    .closest(".paragraphs-item-drawer");
+   const votingMinuteSection = latestEntry.closest(".paragraphs-item-drawer");
 
     if(!votingMinuteSection.length){
       throw Error(`Could not find the section with the year ${currentYear}`)
@@ -82,11 +76,10 @@ async function downloadVotingMinutes(pdfDate : Date, url: string) : Promise<stri
         const dateText = $(e).text()
         console.log("date text is ", dateText)
         const match = dateText.match(regex)
-        if(match){
+        if(match) {
           const month = match[1]
           const day = parseInt(match[2])
-          const year = currentYear
-          const date = new Date(`${month} ${day}, ${year}`)
+          const date = new Date(`${month} ${day}, ${currentYear}`)
           date.setUTCHours(0, 0, 0, 0);
           console.log(`date checked is ${date}`)
           if(date.getTime() === pdfDate.getTime()){
@@ -150,27 +143,38 @@ async function downloadVotingMinutes(pdfDate : Date, url: string) : Promise<stri
 
 }
 
+async function getLatestEntry($: cheerio.CheerioAPI) : Promise<cheerio.Cheerio<Element>> {
+
+  try {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const element = $("section#content") // Main page content
+      .find(".paragraphs-item-drawers")
+      .first() // Upcoming Hearing Dates
+      .find(
+        `.paragraphs-item-drawer .field.field-label-hidden div:contains('${currentYear}')` // Label element containing the current year
+      );
+    return element;
+
+  } catch (error) {
+    console.error("Error scraping next meeting date:", error);
+    throw error; // Re-throw the error so further Github Actions steps are aborted
+  }
+}
+
 
 /**
  * Determines the most recent past meeting date that has already occurred.
  * If the latest processed date matches it, the script terminates early
  * to avoid redundant downloads.
  */
-async function getLatestDate(url: string): Promise<Date| null> {
+async function getLatestDate(latestEntry: cheerio.Cheerio<Element>): Promise<Date| null> {
    try {
     
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
 
-    const response = await axios.get(url);
-    const $ = cheerio.load(response.data);
-
-    const currentYearElement = $("section#content") // Main page content
-      .find(".paragraphs-item-drawers")
-      .first() // Upcoming Hearing Dates
-      .find(
-        `.paragraphs-item-drawer .field.field-label-hidden div:contains('${currentYear}')` // Label element containing the current year
-      )
+    const currentYearElement = latestEntry
       .parentsUntil(".section-drawers") // Lowest common ancestor of the label element and the list of dates
       .find(".entity .field ul"); // List of dates
 
@@ -198,7 +202,7 @@ async function getLatestDate(url: string): Promise<Date| null> {
       console.log("No past meeting dates found")
       return null
     }
-    try{
+    try {
       const lastProcessedDate = await getWrittenLatestDate()
       console.log("lat processed date is ", lastProcessedDate)
       const unprocessedDates = pastDates.filter((date) => date > lastProcessedDate)
@@ -209,7 +213,7 @@ async function getLatestDate(url: string): Promise<Date| null> {
       }
       const nextDateToProcess = new Date(Math.min(...unprocessedDates.map(d => d.getTime())))
       return nextDateToProcess
-    } catch(err){
+    } catch(err) {
        console.log('Last processed date file is not found')
        const maxPastDate = new Date(Math.max(...pastDates.map(date => date.getTime())))
        return maxPastDate;
@@ -221,16 +225,12 @@ async function getLatestDate(url: string): Promise<Date| null> {
   }
 }
 
-async function getWrittenLatestDate(){
+async function getWrittenLatestDate() {
   const dateFilePath = path.join(__dirname, '..', LAST_PROCESSED_DATE_JSON)
-  try{
-      const data = await fs.readFile(dateFilePath, 'utf-8')
-      const parsed = JSON.parse(data)
-      const lastestDate = new Date(parsed.date)
-      return lastestDate
-  }catch(err: any){
-     throw err
-  }
+  const data = await fs.readFile(dateFilePath, 'utf-8')
+  const parsed = JSON.parse(data)
+  const latestDate = new Date(parsed.date)
+  return latestDate
 }
 
 
