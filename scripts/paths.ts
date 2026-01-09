@@ -8,6 +8,7 @@ function requireEnv(name: string): string {
 }
 
 export const LICENSES_JSON = requireEnv("LICENSES_JSON");
-export const LAST_PROCESSED_DATE_JSON = requireEnv("LAST_PROCESSED_DATE_JSON"); 
+export const LAST_PROCESSED_DATE_JSON = requireEnv("LAST_PROCESSED_DATE_JSON");
 export const BOSTON_URL = requireEnv("BOSTON_URL");
 export const LICENSE_SCHEMA_PATH = requireEnv("LICENSE_SCHEMA_PATH")
+export const GOOGLE_PDF_URL = requireEnv("GOOGLE_PDF_URL");

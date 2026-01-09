@@ -16,12 +16,11 @@
   "scripts": {
     "build:validate-license": "npx tsc $npm_package_config_tscflags validateLicenseData.ts",
     "run:validate-license": "node validateLicenseData.js",
-
     "build:get-voting-minutes": "tsc $npm_package_config_tscflags getVotingMinutes.ts",
     "run:get-voting-minutes": "node getVotingMinutes.js",
-
     "build:update-last-processed": "tsc $npm_package_config_tscflags updateLastProcessedDate.ts",
-    "run:update-last-processed": "node updateLastProcessedDate.js"
+    "run:update-last-processed": "node updateLastProcessedDate.js",
+    "test": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +28,7 @@
   "description": "",
   "devDependencies": {
     "@types/node": "^24.1.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.16"
   }
 }

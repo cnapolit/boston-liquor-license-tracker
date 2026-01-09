@@ -4,8 +4,7 @@ import axios from 'axios'
 import fs from 'fs/promises';
 import path from 'path'
 import { fileURLToPath } from "url";
-import {LAST_PROCESSED_DATE_JSON, BOSTON_URL} from "./paths.js"
-import { writeFile } from 'fs';
+import {LAST_PROCESSED_DATE_JSON, BOSTON_URL, GOOGLE_PDF_URL} from "./paths.js";
 
 interface EntityType{
    href: string | null, 
@@ -16,7 +15,7 @@ interface EntityType{
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function main(){
+export async function main() {
    // Entrypoint: fetch the latest meeting date, download the corresponding PDF,
    // and log structured JSON output for liqour-license-applicant-pipeline workflow.'
    try{
