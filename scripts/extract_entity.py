@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from typing import List, Dict, Optional, Any, Union
+from typing import Iterator, List, Dict, Optional, Any, Union
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +15,7 @@ LICENSES_JSON = os.getenv("LICENSES_JSON")
 LAST_PROCESSED_DATE_JSON = os.getenv("LAST_PROCESSED_DATE_JSON")
 
 def parse_entity(entity: str) -> Dict[str, Optional[str]]:
-    lines: List[str] = [line.strip() for line in entity.splitlines() if line.strip()]
+    lines: List[str] = [stripped for line in entity.splitlines() if (stripped := line.strip())]
     result: Dict[str, Optional[str]] = {
         "index": None, 
         "entity_number": None,
@@ -37,15 +37,14 @@ def parse_entity(entity: str) -> Dict[str, Optional[str]]:
 
     application_details: str = " ".join(lines).lower()
     result["file_name"] = lines[-1]
-
-    if lines:
-        match: Optional[re.Match[str]] = re.match(r"^(\d+)\.?\s*(.+)", lines[0])
-        if match:
-            result["entity_number"] = match.group(1)
-            result["business_name"] = match.group(2).strip()
-            print(f"INFO: Parsed entity {result['entity_number']}: {result['business_name']}")
-        else:
-            print(f"WARNING: Could not parse entity number/name from: '{lines[0]}'")
+    
+    match: Optional[re.Match[str]] = re.match(r"^(\d+)\.?\s*(.+)", lines[0])
+    if match:
+        result["entity_number"] = match.group(1)
+        result["business_name"] = match.group(2).strip()
+        print(f"INFO: Parsed entity {result['entity_number']}: {result['business_name']}")
+    else:
+        print(f"WARNING: Could not parse entity number/name from: '{lines[0]}'")
 
     for line in lines:
         lower_line: str = line.lower()
@@ -95,82 +94,65 @@ def parse_entity(entity: str) -> Dict[str, Optional[str]]:
 
 # Extracts the first hearing date from the first page of the PDF.
 # Assumes the date is in "Month DD, YYYY" format and exists on page 1.
-# If date does not exist the enity date will be marked as None
-def extract_hearing_date(pdf_path: str) -> datetime:
+# If date does not exist the entity date will be marked as None
+def extract_hearing_date(doc: fitz.Document) -> datetime:
     date_pattern: str = r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
-    doc: fitz.Document = fitz.open(pdf_path)
     page: fitz.Page = doc[0]
     text: str = page.get_text()
     match: Optional[re.Match[str]] = re.search(date_pattern, text)
-    if match:
-        date_str: str = match.group()
-        try:
-            date_obj: datetime = datetime.strptime(date_str, "%B %d, %Y")
-            return date_obj
-        except Exception as e:
-            raise ValueError(f"Could not conver date string to iso format: {e}")
-    else:
+    if not match:
         raise ValueError(f"Could not find date in the pdf: {e}")
+    
+    date_str: str = match.group()
+    try:
+        date_obj: datetime = datetime.strptime(date_str, "%B %d, %Y")
+        return date_obj
+    except Exception as e:
+        raise ValueError(f"Could not convert date string to iso format: {e}")
 
-def extract_entities_from_pdf(pdf_path: str) -> List[str]:
+def extract_entities_from_pdf_lines(lines: Iterator[str], file_name: str) -> List[str]:
     heading_regex: str = r'^\d+\.?\s+.*'
     entities: List[str] = []
     current_entity_lines: List[str] = []
     in_target_section: bool = False
 
-    try:
-        doc: fitz.Document = fitz.open(pdf_path)
-    except Exception as e:
-        print(f"ERROR: Cannot open PDF '{pdf_path}': {e}")
-        sys.exit(1)
-
-    file_name: str = os.path.basename(pdf_path)
     print(f"\nProcessing document: {file_name}")
-
-    for page_num in range(doc.page_count):
-        page: fitz.Page = doc.load_page(page_num)
-
+    for line in lines:
         try:
-            page_dict: Dict[str, Any] = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)
-            for block in page_dict["blocks"]:
-                if block['type'] == 0:
-                    for line in block['lines']:
-                        stop_processing_line: bool = False
-                        for span in line['spans']:
-                            span_text: str = span['text'].strip()
-                            if not span_text:
-                                continue
+            stop_processing_line: bool = False
+            for span in line['spans']:
+                span_text: str = span['text'].strip()
+                if not span_text:
+                    continue
 
-                            if 'Transactional Hearing' in span_text:
-                                in_target_section = True
-                                continue
+                if 'Transactional Hearing' in span_text:
+                    in_target_section = True
+                    continue
 
-                            if 'Non-Hearing Transactions' in span_text:
-                                in_target_section = False
-                                stop_processing_line = True
-                                break
+                if 'Non-Hearing Transactions' in span_text:
+                    in_target_section = False
+                    stop_processing_line = True
+                    break
 
-                            heading_match: Optional[re.Match[str]] = re.match(heading_regex, span_text)
-                            if in_target_section and heading_match and span['flags'] == 20:
-                                if current_entity_lines:
-                                    current_entity_lines.append(file_name)
-                                    entities.append('\n'.join(current_entity_lines))
-                                    current_entity_lines = []
-                                current_entity_lines.append(span_text)
-                            elif in_target_section:
-                                current_entity_lines.append(span_text)
+                heading_match: Optional[re.Match[str]] = re.match(heading_regex, span_text)
+                start_of_new_entity: bool = in_target_section and heading_match and span['flags'] == 20
+                if start_of_new_entity and current_entity_lines:
+                    current_entity_lines.append(file_name)
+                    entities.append('\n'.join(current_entity_lines))
+                    current_entity_lines = []
+                if in_target_section:
+                    current_entity_lines.append(span_text)
 
-                        if stop_processing_line or not in_target_section:
-                            pass
+            if stop_processing_line or not in_target_section:
+                pass
         except Exception as e:
-            print(f"Error processing page {page_num + 1} in {pdf_path}: {e}")
+            print(f"Error processing line {line}: {e}")
             continue
 
     if current_entity_lines:
         current_entity_lines.append(file_name)
         entities.append('\n'.join(current_entity_lines))
 
-    doc.close()
     return entities
 
 def read_data() -> List[Dict[str, Optional[str]]]:
@@ -190,7 +172,6 @@ def read_data() -> List[Dict[str, Optional[str]]]:
             raise RuntimeError(f"Failed to read existing data from {output_file}: {e}")
     
     return existing_data
-
 
 def write_to_file(result: List[Dict[str, Optional[str]]]) -> None:
     """
@@ -229,13 +210,16 @@ def process_pdf(file_name: str, option: str = "default") -> List[Dict[str, Optio
         sys.exit(1)
     date: Optional[datetime] = None
     expiration_date: Optional[datetime] = None
-    try:
-        date = extract_hearing_date(pdf_path)
-        expiration_date = date + relativedelta(years=1)
-    except Exception as e:
-        print(f"Could not get date {pdf_path} : {e}")
-
-    entities: List[str] = extract_entities_from_pdf(pdf_path)
+    with fitz.open(pdf_path) as doc:
+        try:
+            date = extract_hearing_date(doc)
+            expiration_date = date + relativedelta(years=1)
+        except Exception as e:
+            print(f"Could not get date {pdf_path} : {e}")
+        
+        doc_lines: Iterator[str] = retrieve_lines(doc)
+        entities: List[str] = extract_entities_from_pdf_lines(doc_lines, file_name)
+        
     final_result: List[Dict[str, Optional[str]]] = []
     for entity_data in entities: 
         try:
@@ -243,19 +227,29 @@ def process_pdf(file_name: str, option: str = "default") -> List[Dict[str, Optio
         except Exception as e:
             print(f"WARNING: Failed to parse entity: {e}")
             continue
-        if result['alcohol_type'] in ('Wines and Malt Beverages', 'All Alcoholic Beverages'):
-            result['file_name'] = file_name
-            result['minutes_date'] = date.date().isoformat()
-            result['application_expiration_date'] = expiration_date.date().isoformat()
-            result['status'] = 'Deferred'
-            final_result.append(result)
-            print('--------------------------')
+        if result['alcohol_type'] not in ('Wines and Malt Beverages', 'All Alcoholic Beverages'):
+            continue
+
+        result['file_name'] = file_name
+        result['minutes_date'] = date.date().isoformat()
+        result['application_expiration_date'] = expiration_date.date().isoformat()
+        result['status'] = 'Deferred'
+        final_result.append(result)
+        print('--------------------------')
 
     if(option == 'seeding'):
         return final_result
 
     write_to_file(final_result)
-    return final_result 
+    return final_result
+
+def retrieve_lines(doc: fitz.Document) -> Iterator[str]:
+    for page in doc.pages():
+        page_dict: Dict[str, Any] = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)
+        for block in page_dict["blocks"]:
+            if block['type'] == 0:
+                for line in block['lines']:
+                    yield line
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
