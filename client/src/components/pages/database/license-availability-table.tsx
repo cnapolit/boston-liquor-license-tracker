@@ -185,7 +185,7 @@ const LicenseAvailabilityTable = () => {
       <h4 className={styles.filterDescriptor}>
         <FormattedMessage id="database.filter.descriptor"/>
       </h4>
-      <div className={styles.filters}>
+      <div className={`${styles.filters} gap-[16px]`}>
         <ZipCodeFilter setZipcodeList={setZipcodeList} />
         <FilterDropdown
           titleId="database.filter.licenseType"

@@ -165,7 +165,7 @@ const RecentApplicationTable = () => {
         <h2>
           <FormattedMessage id="database.licenseAvailabilityTable.header" />
         </h2>
-        <div className={tableStyles.filters}>
+        <div className={`${tableStyles.filters} gap-[16px]`}>
           <ZipCodeFilter setZipcodeList={setZipcodeList} />
           <FilterDropdown
             titleId="database.filter.applicationStatus"
@@ -175,9 +175,9 @@ const RecentApplicationTable = () => {
             onSelectionChange={onStatusSelectionChange}
           />
           <div className={tableStyles.legendContainer}>
-            <div className={`${tableStyles.tableLegend} bg-ui-gray px-[16px] py-[8px] rounded-[8px]`}>
+            <div className={`${tableStyles.tableLegend} gap-[10px] bg-ui-gray px-[16px] py-[8px] rounded-[8px]`}>
               <div><FormattedMessage id="database.licenseAvailabilityTable.legend"/></div>
-              <div className={tableStyles.infoIcon}></div>
+              <div className={`${tableStyles.infoIcon} w-[24px] h-[24px]`}></div>
             </div>
           </div>
         </div>
